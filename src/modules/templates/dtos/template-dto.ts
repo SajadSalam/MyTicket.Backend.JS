@@ -4,7 +4,6 @@ import { Template } from '../templates.entity';
 import { TemplateCategoryDto } from './create-template.dto';
 
 export class TemplateDto {
-
   id: string;
   @ApiProperty({ example: 'Main Stage Arena' })
   name: string;
