@@ -1,23 +1,76 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeleteResult, Repository } from 'typeorm';
 import {
   PaginatedResponseDto,
   createPaginatedResponse,
 } from '../../common/dto';
+import { SeatioService } from '../seatio/seatio.service';
+import { TemplatesService } from '../templates/templates.service';
 import { CreateEventDto } from './dtos/create-event.dto';
 import { EventsFilterDto } from './dtos/events-filter.dto';
 import { UpdateEventDto } from './dtos/update-event.dto';
 import { Event } from './events.entity';
 
+interface SeatsioErrorResponse {
+  status: number;
+  messages: string[];
+}
+
+function isSeatsioError(err: unknown): err is SeatsioErrorResponse {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'status' in err &&
+    'messages' in err &&
+    Array.isArray((err as SeatsioErrorResponse).messages)
+  );
+}
+
 @Injectable()
 export class EventsService {
+  private readonly logger = new Logger(EventsService.name);
+
   constructor(
     @InjectRepository(Event)
     private readonly repo: Repository<Event>,
+    private readonly templatesService: TemplatesService,
+    private readonly seatioService: SeatioService,
   ) {}
 
   async create(dto: CreateEventDto): Promise<Event> {
+    const template = await this.templatesService.findOne(dto.templateId);
+    if (!template) {
+      throw new NotFoundException(
+        `Template with id "${dto.templateId}" not found`,
+      );
+    }
+
+    let seatioEventKey: string;
+    try {
+      const seatioEvent = await this.seatioService.createEvent(
+        template.seatioChartKey,
+      );
+      seatioEventKey = seatioEvent.key;
+      this.logger.log(
+        `Seatsio event created [key: ${seatioEventKey}] for chart [${template.seatioChartKey}]`,
+      );
+    } catch (err: unknown) {
+      if (isSeatsioError(err) && err.status === 400 && err.messages.length) {
+        throw new BadRequestException(err.messages);
+      }
+      this.logger.error('Failed to create Seatsio event', err);
+      throw new InternalServerErrorException(
+        'Could not create the seating event in Seatsio. Please try again.',
+      );
+    }
+
     const event = this.repo.create({
       name: dto.name,
       description: dto.description ?? null,
@@ -32,13 +85,17 @@ export class EventsService {
       location: dto.location ?? null,
       lat: dto.lat != null ? String(dto.lat) : null,
       lng: dto.lng != null ? String(dto.lng) : null,
+      templateId: template.id,
+      seatioEventKey,
     });
+
     return this.repo.save(event);
   }
 
   async findAll(filter: EventsFilterDto): Promise<PaginatedResponseDto<Event>> {
     const qb = this.repo
       .createQueryBuilder('event')
+      .leftJoinAndSelect('event.template', 'template')
       .orderBy('event.startDate', 'DESC')
       .skip(filter.offset)
       .take(filter.limit ?? 10);
@@ -73,7 +130,7 @@ export class EventsService {
   }
 
   findOne(id: string): Promise<Event | null> {
-    return this.repo.findOneBy({ id });
+    return this.repo.findOne({ where: { id }, relations: ['template'] });
   }
 
   async update(id: string, dto: UpdateEventDto): Promise<void> {

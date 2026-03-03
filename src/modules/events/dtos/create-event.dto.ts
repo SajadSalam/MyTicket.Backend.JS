@@ -1,17 +1,25 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   IsUrl,
   Max,
   Min,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
 
 export class CreateEventDto {
+  @ApiProperty({
+    example: '550e8400-e29b-41d4-a716-446655440000',
+    description: 'ID of the template (seating chart) to use for this event',
+  })
+  @IsUUID()
+  templateId: string;
+
   @ApiProperty({ example: 'Summer Music Festival 2025' })
   @IsString()
   name: string;
@@ -38,7 +46,6 @@ export class CreateEventDto {
     isArray: true,
   })
   @IsOptional()
-  @Transform(({ value }) => (Array.isArray(value) ? value : value ? [value] : []))
   @IsArray()
   @IsString({ each: true })
   images?: string[];
@@ -59,9 +66,11 @@ export class CreateEventDto {
   @IsDateString()
   bookingEndDate: string;
 
-  @ApiPropertyOptional({ example: ['music', 'festival', 'summer'], type: [String] })
+  @ApiPropertyOptional({
+    example: ['music', 'festival', 'summer'],
+    type: [String],
+  })
   @IsOptional()
-  @Transform(({ value }) => (Array.isArray(value) ? value : value ? [value] : []))
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
@@ -73,7 +82,9 @@ export class CreateEventDto {
 
   @ApiPropertyOptional({ example: 40.785091 })
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @Transform(({ value }) =>
+    value === '' || value == null ? undefined : Number(value),
+  )
   @IsNumber()
   @Min(-90)
   @Max(90)
@@ -81,7 +92,9 @@ export class CreateEventDto {
 
   @ApiPropertyOptional({ example: -73.968285 })
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @Transform(({ value }) =>
+    value === '' || value == null ? undefined : Number(value),
+  )
   @IsNumber()
   @Min(-180)
   @Max(180)

@@ -3,9 +3,12 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Template } from '../templates/templates.entity';
 
 @Entity('events')
 export class Event {
@@ -70,6 +73,27 @@ export class Event {
   @ApiPropertyOptional({ example: -73.968285 })
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   lng: string | null;
+
+  // ─── Template relation ────────────────────────────────────────────────────
+
+  @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000' })
+  @Column({ type: 'uuid' })
+  templateId: string;
+
+  @ManyToOne(() => Template, { eager: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'templateId' })
+  template: Template;
+
+  // ─── Seatsio ──────────────────────────────────────────────────────────────
+
+  @ApiProperty({
+    example: 'ev-abc123',
+    description: 'Seatsio event key provisioned when this event was created',
+  })
+  @Column({ type: 'varchar', unique: true })
+  seatioEventKey: string;
+
+  // ─── Timestamps ───────────────────────────────────────────────────────────
 
   @ApiProperty({ example: '2024-01-01T00:00:00.000Z' })
   @CreateDateColumn()
