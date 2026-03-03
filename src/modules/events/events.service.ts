@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -13,10 +14,13 @@ import {
 } from '../../common/dto';
 import { SeatioService } from '../seatio/seatio.service';
 import { TemplatesService } from '../templates/templates.service';
+import { EventCategoryPricing } from './event-category-pricing.entity';
+import { CreateCategoryPricingDto } from './dtos/create-category-pricing.dto';
+import { UpdateCategoryPricingDto } from './dtos/update-category-pricing.dto';
 import { CreateEventDto } from './dtos/create-event.dto';
 import { EventsFilterDto } from './dtos/events-filter.dto';
 import { UpdateEventDto } from './dtos/update-event.dto';
-import { Event } from './events.entity';
+import { Event, EventStatus } from './events.entity';
 
 interface SeatsioErrorResponse {
   status: number;
@@ -40,9 +44,13 @@ export class EventsService {
   constructor(
     @InjectRepository(Event)
     private readonly repo: Repository<Event>,
+    @InjectRepository(EventCategoryPricing)
+    private readonly pricingRepo: Repository<EventCategoryPricing>,
     private readonly templatesService: TemplatesService,
     private readonly seatioService: SeatioService,
   ) {}
+
+  // ─── Events ───────────────────────────────────────────────────────────────
 
   async create(dto: CreateEventDto): Promise<Event> {
     const template = await this.templatesService.findOne(dto.templateId);
@@ -87,6 +95,7 @@ export class EventsService {
       lng: dto.lng != null ? String(dto.lng) : null,
       templateId: template.id,
       seatioEventKey,
+      status: EventStatus.DRAFT,
     });
 
     return this.repo.save(event);
@@ -96,6 +105,7 @@ export class EventsService {
     const qb = this.repo
       .createQueryBuilder('event')
       .leftJoinAndSelect('event.template', 'template')
+      .leftJoinAndSelect('event.categoryPricings', 'categoryPricings')
       .orderBy('event.startDate', 'DESC')
       .skip(filter.offset)
       .take(filter.limit ?? 10);
@@ -104,6 +114,10 @@ export class EventsService {
       qb.andWhere('event.name ILIKE :search', {
         search: `%${filter.search.trim()}%`,
       });
+    }
+
+    if (filter.status) {
+      qb.andWhere('event.status = :status', { status: filter.status });
     }
 
     if (filter.tags?.trim()) {
@@ -130,7 +144,10 @@ export class EventsService {
   }
 
   findOne(id: string): Promise<Event | null> {
-    return this.repo.findOne({ where: { id }, relations: ['template'] });
+    return this.repo.findOne({
+      where: { id },
+      relations: ['template', 'categoryPricings'],
+    });
   }
 
   async update(id: string, dto: UpdateEventDto): Promise<void> {
@@ -155,5 +172,142 @@ export class EventsService {
 
   delete(id: string): Promise<DeleteResult> {
     return this.repo.delete(id);
+  }
+
+  // ─── Publish / Unpublish ──────────────────────────────────────────────────
+
+  async publish(id: string): Promise<Event> {
+    const event = await this.findOne(id);
+    if (!event) throw new NotFoundException('Event not found');
+
+    if (event.status === EventStatus.PUBLISHED) {
+      throw new BadRequestException('Event is already published');
+    }
+
+    if (event.status === EventStatus.CANCELLED) {
+      throw new BadRequestException('Cancelled events cannot be published');
+    }
+
+    const pricings = await this.pricingRepo.find({ where: { eventId: id } });
+    if (pricings.length === 0) {
+      throw new BadRequestException(
+        'Cannot publish event without at least one category pricing. Please add category pricing first.',
+      );
+    }
+
+    await this.repo.update(id, { status: EventStatus.PUBLISHED });
+    return (await this.findOne(id))!;
+  }
+
+  async unpublish(id: string): Promise<Event> {
+    const event = await this.findOne(id);
+    if (!event) throw new NotFoundException('Event not found');
+
+    if (event.status === EventStatus.DRAFT) {
+      throw new BadRequestException('Event is already in draft state');
+    }
+
+    if (event.status === EventStatus.CANCELLED) {
+      throw new BadRequestException('Cancelled events cannot be changed to draft');
+    }
+
+    await this.repo.update(id, { status: EventStatus.DRAFT });
+    return (await this.findOne(id))!;
+  }
+
+  async cancel(id: string): Promise<Event> {
+    const event = await this.findOne(id);
+    if (!event) throw new NotFoundException('Event not found');
+
+    if (event.status === EventStatus.CANCELLED) {
+      throw new BadRequestException('Event is already cancelled');
+    }
+
+    await this.repo.update(id, { status: EventStatus.CANCELLED });
+    return (await this.findOne(id))!;
+  }
+
+  // ─── Category Pricing ─────────────────────────────────────────────────────
+
+  async listCategoryPricings(eventId: string): Promise<EventCategoryPricing[]> {
+    await this.getEventOrFail(eventId);
+    return this.pricingRepo.find({
+      where: { eventId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async createCategoryPricing(
+    eventId: string,
+    dto: CreateCategoryPricingDto,
+  ): Promise<EventCategoryPricing> {
+    const event = await this.getEventOrFail(eventId);
+
+    const categoryExists = event.template?.categories?.some(
+      (c) => String(c.key) === String(dto.categoryKey),
+    );
+    if (!categoryExists) {
+      throw new BadRequestException(
+        `Category key "${dto.categoryKey}" does not exist in the event template`,
+      );
+    }
+
+    const existing = await this.pricingRepo.findOne({
+      where: { eventId, categoryKey: dto.categoryKey },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `Pricing for category "${dto.categoryKey}" already exists. Use PUT to update it.`,
+      );
+    }
+
+    const pricing = this.pricingRepo.create({
+      eventId,
+      categoryKey: dto.categoryKey,
+      categoryLabel: dto.categoryLabel,
+      price: String(dto.price),
+      currency: dto.currency ?? 'IQD',
+      description: dto.description ?? null,
+    });
+
+    return this.pricingRepo.save(pricing);
+  }
+
+  async updateCategoryPricing(
+    eventId: string,
+    pricingId: string,
+    dto: UpdateCategoryPricingDto,
+  ): Promise<EventCategoryPricing> {
+    await this.getEventOrFail(eventId);
+
+    const pricing = await this.pricingRepo.findOne({
+      where: { id: pricingId, eventId },
+    });
+    if (!pricing) throw new NotFoundException('Category pricing not found');
+
+    if (dto.categoryLabel !== undefined) pricing.categoryLabel = dto.categoryLabel;
+    if (dto.price !== undefined) pricing.price = String(dto.price);
+    if (dto.currency !== undefined) pricing.currency = dto.currency;
+    if (dto.description !== undefined) pricing.description = dto.description;
+
+    return this.pricingRepo.save(pricing);
+  }
+
+  async deleteCategoryPricing(
+    eventId: string,
+    pricingId: string,
+  ): Promise<void> {
+    await this.getEventOrFail(eventId);
+
+    const result = await this.pricingRepo.delete({ id: pricingId, eventId });
+    if ((result.affected ?? 0) === 0) {
+      throw new NotFoundException('Category pricing not found');
+    }
+  }
+
+  private async getEventOrFail(id: string): Promise<Event> {
+    const event = await this.findOne(id);
+    if (!event) throw new NotFoundException('Event not found');
+    return event;
   }
 }

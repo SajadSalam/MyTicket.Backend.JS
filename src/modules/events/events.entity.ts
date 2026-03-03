@@ -5,10 +5,18 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Template } from '../templates/templates.entity';
+import { EventCategoryPricing } from './event-category-pricing.entity';
+
+export enum EventStatus {
+  DRAFT = 'draft',
+  PUBLISHED = 'published',
+  CANCELLED = 'cancelled',
+}
 
 @Entity('events')
 export class Event {
@@ -74,6 +82,10 @@ export class Event {
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   lng: string | null;
 
+  @ApiProperty({ enum: EventStatus, example: EventStatus.DRAFT })
+  @Column({ type: 'enum', enum: EventStatus, default: EventStatus.DRAFT })
+  status: EventStatus;
+
   // ─── Template relation ────────────────────────────────────────────────────
 
   @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000' })
@@ -83,6 +95,12 @@ export class Event {
   @ManyToOne(() => Template, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'templateId' })
   template: Template;
+
+  // ─── Category Pricing relation ────────────────────────────────────────────
+
+  @ApiPropertyOptional({ type: () => [EventCategoryPricing] })
+  @OneToMany(() => EventCategoryPricing, (cp) => cp.event, { cascade: true })
+  categoryPricings: EventCategoryPricing[];
 
   // ─── Seatsio ──────────────────────────────────────────────────────────────
 
