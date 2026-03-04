@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ChangeObjectStatusResult,
@@ -264,7 +264,12 @@ export class SeatioService implements OnModuleInit {
     eventKey: string,
     objects: string[],
   ): Promise<Dict<EventObjectInfo>> {
-    return this.client.events.retrieveObjectInfos(eventKey, objects);
+    try {
+      return this.client.events.retrieveObjectInfos(eventKey, objects);
+    } catch (error: unknown) {
+      console.error(error);
+      throw new InternalServerErrorException('Failed to retrieve object infos');
+    }
   }
 
   // ─── Reports ─────────────────────────────────────────────────────────────

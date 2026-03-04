@@ -3,7 +3,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
+import { BookingsModule } from './modules/bookings/bookings.module';
 import { EventsModule } from './modules/events/events.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { SeatioModule } from './modules/seatio/seatio.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { UploadModule } from './modules/upload/upload.module';
@@ -28,6 +30,8 @@ import { UsersModule } from './modules/users/users.module';
     UsersModule,
     AuthModule,
     EventsModule,
+    BookingsModule,
+    PaymentsModule,
     SeatioModule,
     TemplatesModule,
     UploadModule,

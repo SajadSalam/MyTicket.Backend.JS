@@ -12,30 +12,16 @@ import {
   PaginatedResponseDto,
   createPaginatedResponse,
 } from '../../common/dto';
+import { isSeatsioError } from '../../common/utils';
 import { SeatioService } from '../seatio/seatio.service';
 import { TemplatesService } from '../templates/templates.service';
-import { EventCategoryPricing } from './event-category-pricing.entity';
 import { CreateCategoryPricingDto } from './dtos/create-category-pricing.dto';
-import { UpdateCategoryPricingDto } from './dtos/update-category-pricing.dto';
 import { CreateEventDto } from './dtos/create-event.dto';
 import { EventsFilterDto } from './dtos/events-filter.dto';
+import { UpdateCategoryPricingDto } from './dtos/update-category-pricing.dto';
 import { UpdateEventDto } from './dtos/update-event.dto';
+import { EventCategoryPricing } from './event-category-pricing.entity';
 import { Event, EventStatus } from './events.entity';
-
-interface SeatsioErrorResponse {
-  status: number;
-  messages: string[];
-}
-
-function isSeatsioError(err: unknown): err is SeatsioErrorResponse {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'status' in err &&
-    'messages' in err &&
-    Array.isArray((err as SeatsioErrorResponse).messages)
-  );
-}
 
 @Injectable()
 export class EventsService {
@@ -98,7 +84,15 @@ export class EventsService {
       status: EventStatus.DRAFT,
     });
 
-    return this.repo.save(event);
+    const saved = await this.repo.save(event);
+    const detailedEvent = await this.repo.findOne({
+      where: { id: saved.id },
+      relations: ['template', 'categoryPricings'],
+    });
+    if (!detailedEvent) {
+      throw new NotFoundException(`Event with id "${saved.id}" not found`);
+    }
+    return detailedEvent;
   }
 
   async findAll(filter: EventsFilterDto): Promise<PaginatedResponseDto<Event>> {
@@ -208,7 +202,9 @@ export class EventsService {
     }
 
     if (event.status === EventStatus.CANCELLED) {
-      throw new BadRequestException('Cancelled events cannot be changed to draft');
+      throw new BadRequestException(
+        'Cancelled events cannot be changed to draft',
+      );
     }
 
     await this.repo.update(id, { status: EventStatus.DRAFT });
@@ -285,7 +281,8 @@ export class EventsService {
     });
     if (!pricing) throw new NotFoundException('Category pricing not found');
 
-    if (dto.categoryLabel !== undefined) pricing.categoryLabel = dto.categoryLabel;
+    if (dto.categoryLabel !== undefined)
+      pricing.categoryLabel = dto.categoryLabel;
     if (dto.price !== undefined) pricing.price = String(dto.price);
     if (dto.currency !== undefined) pricing.currency = dto.currency;
     if (dto.description !== undefined) pricing.description = dto.description;
