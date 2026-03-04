@@ -64,7 +64,7 @@ export class PaymentsService {
     const { cart_id: bookingId, tran_ref: tranRef, payment_result } = dto;
     const responseStatus = payment_result?.response_status?.toUpperCase();
 
-    console.log(
+    this.logger.warn(
       `Amwal callback: cart_id=${bookingId}, tran_ref=${tranRef}, response_status=${responseStatus}`,
     );
 
@@ -89,7 +89,7 @@ export class PaymentsService {
 
     // Idempotency: if already processed, do nothing
     if (booking.status !== BookingStatus.PENDING) {
-      console.log(
+      this.logger.error(
         `Booking ${bookingId} already in status ${booking.status}, skipping`,
       );
       return;
@@ -117,7 +117,7 @@ export class PaymentsService {
         booking.seatioOrderId = booking.id;
         payment.status = PaymentStatus.PAID;
         payment.paidAt = new Date();
-        console.log(
+        this.logger.warn(
           `Booking ${bookingId} confirmed, seats booked in Seatsio`,
         );
       } else {
@@ -128,7 +128,7 @@ export class PaymentsService {
         );
         booking.status = BookingStatus.FAILED;
         payment.status = PaymentStatus.FAILED;
-        console.log(
+        this.logger.error(
           `Booking ${bookingId} failed, seats released in Seatsio`,
         );
       }
