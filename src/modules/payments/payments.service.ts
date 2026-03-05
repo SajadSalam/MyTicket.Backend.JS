@@ -31,7 +31,9 @@ export class PaymentsService {
     const returnUrl = this.config.get<string>('AMWAL_RETURN_URL') ?? '';
     const amount = parseFloat(booking.totalAmount);
     const cartDescription = `Event Booking - ${booking.customerName ?? 'Guest'}`;
-
+    this.logger.warn(
+      `Creating Amwal payment for booking ${booking.id}, amount ${amount}, cartDescription ${cartDescription}, callbackUrl ${callbackUrl}, returnUrl ${returnUrl}`,
+    );
     const result = await this.amwalService.createOrder(
       booking.id,
       amount,
@@ -61,8 +63,9 @@ export class PaymentsService {
    * Always responds successfully so Amwal does not retry.
    */
   async handleCallback(dto: AmwalCallbackDto): Promise<void> {
-    const { cart_id: bookingId, tran_ref: tranRef, payment_result } = dto;
-    const responseStatus = payment_result?.response_status?.toUpperCase();
+    const bookingId = dto.cart_id;
+    const tranRef = dto.tran_ref;
+    const responseStatus = dto.payment_result?.response_status?.toUpperCase();
 
     this.logger.warn(
       `Amwal callback: cart_id=${bookingId}, tran_ref=${tranRef}, response_status=${responseStatus}`,
@@ -147,6 +150,9 @@ export class PaymentsService {
   }
 
   async findByTranRef(tranRef: string): Promise<Payment | null> {
+    // query status from amwal
+    const status = await this.amwalService.queryStatus(tranRef);
+    console.log('statusAmwalQuery', status);
     return this.paymentRepo.findOne({
       where: { tranRef },
       relations: ['booking', 'booking.event'],
@@ -159,17 +165,22 @@ export class PaymentsService {
     bookingId: string;
     amount: string;
     paidAt: Date | null;
+    statusAmwal: PaymentStatus;
   }> {
     const payment = await this.findByTranRef(tranRef);
     if (!payment) {
       throw new NotFoundException('Payment not found');
     }
+    // query status from amwal
+    const status = await this.amwalService.queryStatus(tranRef);
+    // console.log('statusAmwalQuery', status);
     return {
       tranRef: payment.tranRef,
       status: payment.status,
       bookingId: payment.bookingId,
       amount: payment.amount,
       paidAt: payment.paidAt,
+      statusAmwal: status.status,
     };
   }
 }

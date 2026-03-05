@@ -1,6 +1,7 @@
+import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { HttpModule } from '@nestjs/axios';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Booking } from '../bookings/booking.entity';
 import { SeatioModule } from '../seatio/seatio.module';
@@ -13,10 +14,15 @@ import { PaymentsService } from './payments.service';
   imports: [
     ConfigModule,
     HttpModule.register({ timeout: 15000, maxRedirects: 0 }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([Payment, Booking]),
     SeatioModule,
   ],
-  providers: [AmwalService, PaymentsService],
+  providers: [
+    AmwalService,
+    PaymentsService,
+    // PaymentSyncService
+  ],
   controllers: [PaymentsController],
   exports: [PaymentsService],
 })
