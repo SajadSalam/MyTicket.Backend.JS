@@ -113,7 +113,7 @@ export class PaymentsService {
         await this.seatioService.bookObjects(
           seatioEventKey,
           seats,
-          booking.holdToken,
+          undefined,
           booking.id,
         );
         booking.status = BookingStatus.CONFIRMED;

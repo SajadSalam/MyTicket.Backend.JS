@@ -1,4 +1,9 @@
-import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ChangeObjectStatusResult,
@@ -8,6 +13,7 @@ import {
   Dict,
   Event,
   EventObjectInfo,
+  HoldToken,
   Lister,
   Page,
   Region,
@@ -339,5 +345,9 @@ export class SeatioService implements OnModuleInit {
     objectId: string,
   ): Lister<StatusChange, StatusChangeJson> {
     return this.client.events.statusChangesForObject(eventKey, objectId);
+  }
+
+  createHoldToken(): Promise<HoldToken> {
+    return this.client.holdTokens.create(10);
   }
 }

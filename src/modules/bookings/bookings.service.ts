@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { isSeatsioError } from 'src/common/utils';
 import { Repository } from 'typeorm';
+import { EventCategoryPricing } from '../events/event-category-pricing.entity';
 import { EventStatus } from '../events/events.entity';
 import { EventsService } from '../events/events.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -55,8 +56,20 @@ export class BookingsService {
         seats,
       );
 
+      const bookedSeats = Object.entries(objectInfos)
+        .filter(([, info]) => info.status === 'booked')
+        .map(([label]) => label);
+
+      if (bookedSeats.length > 0) {
+        throw new BadRequestException(
+          `The following seat(s) are already booked: ${bookedSeats.join(', ')}`,
+        );
+      }
+
       const priceByCategoryKey = new Map<string, number>();
-      for (const pricing of event.categoryPricings ?? []) {
+      const categoryPricings = (event.categoryPricings ??
+        []) as EventCategoryPricing[];
+      for (const pricing of categoryPricings) {
         const key = String(pricing.categoryKey ?? '');
         const price = parseFloat(pricing.price ?? '0') ?? 0;
         if (!Number.isNaN(price)) {
@@ -81,12 +94,13 @@ export class BookingsService {
         }
         totalAmount += price;
       }
+      const holdToken = await this.seatioService.createHoldToken();
 
       const booking = this.bookingRepo.create({
         eventId: event.id,
         userId: dto.userId ?? null,
         seats,
-        holdToken: dto.holdToken,
+        holdToken: holdToken.holdToken,
         totalAmount: String(totalAmount.toFixed(2)),
         currency: 'IQD',
         status: BookingStatus.PENDING,
@@ -94,8 +108,18 @@ export class BookingsService {
         customerEmail: dto.customerEmail ?? null,
         customerPhone: dto.customerPhone ?? null,
       });
+      await Promise.all(
+        seats.map(async (seat) => {
+          return this.seatioService.holdObjects(
+            seatioEventKey,
+            seat,
+            holdToken.holdToken,
+          );
+        }),
+      );
 
       await this.bookingRepo.save(booking);
+
       const { redirectUrl } =
         await this.paymentsService.initiatePayment(booking);
 
@@ -105,7 +129,10 @@ export class BookingsService {
       };
     } catch (err: unknown) {
       if (isSeatsioError(err) && err.messages.length) {
+        console.log('err.messages', err);
         throw new BadRequestException(err.messages);
+      } else if (err instanceof BadRequestException) {
+        throw err;
       }
       this.logger.error('Failed to create Seatsio event', err);
       throw new InternalServerErrorException(
