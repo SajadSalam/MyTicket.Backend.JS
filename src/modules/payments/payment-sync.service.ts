@@ -7,6 +7,8 @@ import { SeatioService } from '../seatio/seatio.service';
 import { AmwalService } from './amwal.service';
 import { Payment, PaymentStatus } from './payment.entity';
 
+const EXPIRY_MS = 10 * 60 * 1_000; // 10 minutes
+
 @Injectable()
 export class PaymentSyncService {
   private readonly logger = new Logger(PaymentSyncService.name);
@@ -29,7 +31,7 @@ export class PaymentSyncService {
    */
   @Cron(CronExpression.EVERY_10_SECONDS)
   async syncPendingPayments(): Promise<void> {
-    // const expiryThreshold = new Date(Date.now() - EXPIRY_MS);
+    const expiryThreshold = new Date(Date.now() - EXPIRY_MS);
 
     const pendingPayments = await this.paymentRepo.find({
       where: { status: PaymentStatus.PENDING },
@@ -43,14 +45,14 @@ export class PaymentSyncService {
     for (const payment of pendingPayments) {
       const booking = payment.booking;
 
-      // // ── 1. Expire old pending payments ──────────────────────────────────
-      // if (payment.createdAt <= expiryThreshold) {
-      //   this.logger.warn(
-      //     `Payment ${payment.tranRef} (booking ${booking.id}) expired — created at ${payment.createdAt.toISOString()}`,
-      //   );
-      //   await this.expireBooking(booking, payment);
-      //   continue;
-      // }
+      // ── 1. Expire old pending payments ──────────────────────────────────
+      if (payment.createdAt <= expiryThreshold) {
+        this.logger.warn(
+          `Payment ${payment.tranRef} (booking ${booking.id}) expired — created at ${payment.createdAt.toISOString()}`,
+        );
+        await this.expireBooking(booking, payment);
+        continue;
+      }
 
       // ── 2. Query Amwal for current status ────────────────────────────────
       let amwalStatus: PaymentStatus;
@@ -63,7 +65,7 @@ export class PaymentSyncService {
       } catch (err) {
         this.logger.error(
           `Failed to query Amwal status for TranRef ${payment.tranRef}:`,
-          err.message,
+          err instanceof Error ? err.message : String(err),
         );
         continue;
       }
@@ -158,6 +160,31 @@ export class PaymentSyncService {
     return (e['errors'] as Array<Record<string, unknown>>).some(
       (error) => error['code'] === 'ILLEGAL_STATUS_CHANGE',
     );
+  }
+
+  private async expireBooking(
+    booking: Booking,
+    payment: Payment,
+  ): Promise<void> {
+    const seats = this.normalizeSeats(booking.seats);
+    const seatioEventKey = booking.event?.seatioEventKey;
+    try {
+      await this.seatioService.releaseObjects(
+        seatioEventKey,
+        seats,
+        booking.holdToken,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Seatsio releaseObjects failed while expiring booking ${booking.id}:`,
+        err,
+      );
+    }
+    booking.status = BookingStatus.CANCELLED;
+    payment.status = PaymentStatus.CANCELLED;
+    await this.paymentRepo.save(payment);
+    await this.bookingRepo.save(booking);
+    this.logger.log(`Booking ${booking.id} expired and cancelled`);
   }
 
   private async failBooking(

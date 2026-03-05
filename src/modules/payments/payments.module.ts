@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Booking } from '../bookings/booking.entity';
 import { SeatioModule } from '../seatio/seatio.module';
 import { AmwalService } from './amwal.service';
+import { PaymentSyncService } from './payment-sync.service';
 import { Payment } from './payment.entity';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
@@ -18,11 +19,7 @@ import { PaymentsService } from './payments.service';
     TypeOrmModule.forFeature([Payment, Booking]),
     SeatioModule,
   ],
-  providers: [
-    AmwalService,
-    PaymentsService,
-    // PaymentSyncService
-  ],
+  providers: [AmwalService, PaymentsService, PaymentSyncService],
   controllers: [PaymentsController],
   exports: [PaymentsService],
 })
