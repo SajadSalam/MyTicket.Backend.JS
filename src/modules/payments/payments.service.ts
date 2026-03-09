@@ -28,7 +28,8 @@ export class PaymentsService {
    */
   async initiatePayment(booking: Booking): Promise<{ redirectUrl: string }> {
     const callbackUrl = this.config.get<string>('AMWAL_CALLBACK_URL') ?? '';
-    const returnUrl = this.config.get<string>('AMWAL_RETURN_URL') ?? '';
+    const returnUrl =
+      (this.config.get<string>('AMWAL_RETURN_URL') ?? '') + '/' + booking.id;
     const amount = parseFloat(booking.totalAmount);
     const cartDescription = `Event Booking - ${booking.customerName ?? 'Guest'}`;
     this.logger.warn(

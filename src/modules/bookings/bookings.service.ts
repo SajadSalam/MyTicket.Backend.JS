@@ -8,7 +8,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { isSeatsioError } from 'src/common/utils';
 import { Repository } from 'typeorm';
-import { EventCategoryPricing } from '../events/event-category-pricing.entity';
 import { EventStatus } from '../events/events.entity';
 import { EventsService } from '../events/events.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -67,8 +66,7 @@ export class BookingsService {
       }
 
       const priceByCategoryKey = new Map<string, number>();
-      const categoryPricings = (event.categoryPricings ??
-        []) as EventCategoryPricing[];
+      const categoryPricings = event.categoryPricings ?? [];
       for (const pricing of categoryPricings) {
         const key = String(pricing.categoryKey ?? '');
         const price = parseFloat(pricing.price ?? '0') ?? 0;
