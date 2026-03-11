@@ -10,9 +10,11 @@ import { isSeatsioError } from 'src/common/utils';
 import { Repository } from 'typeorm';
 import { EventStatus } from '../events/events.entity';
 import { EventsService } from '../events/events.service';
+import { PaymentStatus } from '../payments/payment.entity';
 import { PaymentsService } from '../payments/payments.service';
 import { SeatioService } from '../seatio/seatio.service';
 import { Booking, BookingStatus } from './booking.entity';
+import { AdminBookingsFilterDto } from './dtos/admin-bookings-filter.dto';
 import { CreateBookingDto } from './dtos/create-booking.dto';
 
 @Injectable()
@@ -181,5 +183,160 @@ export class BookingsService {
       throw new NotFoundException('Booking not found');
     }
     return booking;
+  }
+
+  async findAllAdmin(
+    params: AdminBookingsFilterDto,
+  ): Promise<{ data: Booking[]; total: number }> {
+    const page = params.page ?? 1;
+    const limit = Math.min(params.limit ?? 10, 100);
+    const skip = (page - 1) * limit;
+
+    const qb = this.bookingRepo
+      .createQueryBuilder('booking')
+      .leftJoinAndSelect('booking.event', 'event')
+      .leftJoinAndSelect('booking.payment', 'payment')
+      .orderBy('booking.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    if (params.eventId) {
+      qb.andWhere('booking.eventId = :eventId', { eventId: params.eventId });
+    }
+    if (params.status) {
+      qb.andWhere('booking.status = :status', { status: params.status });
+    }
+    if (params.search) {
+      const term = `%${params.search}%`;
+      qb.andWhere(
+        '(booking.customerName ILIKE :term OR booking.customerEmail ILIKE :term OR booking.customerPhone ILIKE :term)',
+        { term },
+      );
+    }
+    if (params.dateFrom) {
+      qb.andWhere('booking.createdAt >= :dateFrom', {
+        dateFrom: new Date(params.dateFrom),
+      });
+    }
+    if (params.dateTo) {
+      const to = new Date(params.dateTo);
+      to.setUTCHours(23, 59, 59, 999);
+      qb.andWhere('booking.createdAt <= :dateTo', { dateTo: to });
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
+  async cancelBooking(id: string): Promise<Booking> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id },
+      relations: ['event', 'payment'],
+    });
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    if (booking.status === BookingStatus.CANCELLED) {
+      throw new BadRequestException('Booking is already cancelled');
+    }
+    if (booking.status === BookingStatus.FAILED) {
+      throw new BadRequestException('Cannot cancel a failed booking');
+    }
+
+    const seatioEventKey = booking.event?.seatioEventKey;
+    const seats = Array.isArray(booking.seats)
+      ? booking.seats
+      : String(booking.seats ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+    if (seatioEventKey && seats.length > 0) {
+      try {
+        if (booking.status === BookingStatus.CONFIRMED) {
+          await this.seatioService.releaseObjects(
+            seatioEventKey,
+            seats,
+            undefined,
+          );
+        } else {
+          await this.seatioService.releaseObjects(
+            seatioEventKey,
+            seats,
+            booking.holdToken,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Seatsio release failed for booking ${id} during admin cancel:`,
+          err,
+        );
+      }
+    }
+
+    booking.status = BookingStatus.CANCELLED;
+    await this.bookingRepo.save(booking);
+
+    if (booking.payment) {
+      await this.paymentsService.updateStatusByBookingId(
+        id,
+        PaymentStatus.CANCELLED,
+      );
+    }
+
+    return this.getByIdOrFail(id);
+  }
+
+  async confirmBooking(id: string): Promise<Booking> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id },
+      relations: ['event', 'payment'],
+    });
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    if (booking.status === BookingStatus.CONFIRMED) {
+      throw new BadRequestException('Booking is already confirmed');
+    }
+    if (booking.status === BookingStatus.FAILED) {
+      throw new BadRequestException('Cannot confirm a failed booking');
+    }
+
+    const seatioEventKey = booking.event?.seatioEventKey;
+    const seats = Array.isArray(booking.seats)
+      ? booking.seats
+      : String(booking.seats ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+    if (seatioEventKey && seats.length > 0) {
+      try {
+        await this.seatioService.bookObjects(
+          seatioEventKey,
+          seats,
+          undefined,
+          id,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Seatsio bookObjects failed for booking ${id} during admin confirm:`,
+          err,
+        );
+      }
+    }
+
+    booking.status = BookingStatus.CONFIRMED;
+    booking.seatioOrderId = id;
+    await this.bookingRepo.save(booking);
+
+    if (booking.payment) {
+      await this.paymentsService.updateStatusByBookingId(
+        id,
+        PaymentStatus.PAID,
+      );
+    }
+
+    return this.getByIdOrFail(id);
   }
 }

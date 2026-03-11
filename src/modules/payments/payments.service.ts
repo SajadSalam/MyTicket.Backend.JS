@@ -184,4 +184,11 @@ export class PaymentsService {
       statusAmwal: status.status,
     };
   }
+
+  async updateStatusByBookingId(
+    bookingId: string,
+    status: PaymentStatus,
+  ): Promise<void> {
+    await this.paymentRepo.update({ bookingId }, { status });
+  }
 }
