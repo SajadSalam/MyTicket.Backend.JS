@@ -46,10 +46,7 @@ export class UploadController {
     schema: {
       type: 'object',
       properties: {
-        url: {
-          type: 'string',
-          example: 'https://xxxx.public.blob.vercel-storage.com/photo.jpg',
-        },
+        url: { type: 'string', example: 'https://xxxx.public.blob.vercel-storage.com/photo.jpg' },
         filename: { type: 'string', example: 'photo.jpg' },
         size: { type: 'number', example: 204800 },
         mimeType: { type: 'string', example: 'image/jpeg' },
@@ -59,10 +56,7 @@ export class UploadController {
   @ApiResponse({ status: 400, description: 'No file provided' })
   @Post()
   @UseInterceptors(
-    FileInterceptor('file', {
-      storage: STORAGE,
-      limits: { fileSize: FILE_SIZE_LIMIT },
-    }),
+    FileInterceptor('file', { storage: STORAGE, limits: { fileSize: FILE_SIZE_LIMIT } }),
   )
   async uploadFile(@UploadedFile() file: Express.Multer.File): Promise<object> {
     if (!file) {
@@ -85,9 +79,7 @@ export class UploadController {
 
   // ─── Multiple files ─────────────────────────────────────────────────────────
 
-  @ApiOperation({
-    summary: 'Upload multiple files and get their URLs (max 20 files)',
-  })
+  @ApiOperation({ summary: 'Upload multiple files and get their URLs (max 20 files)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -113,11 +105,7 @@ export class UploadController {
           items: {
             type: 'object',
             properties: {
-              url: {
-                type: 'string',
-                example:
-                  'https://xxxx.public.blob.vercel-storage.com/photo.jpg',
-              },
+              url: { type: 'string', example: 'https://xxxx.public.blob.vercel-storage.com/photo.jpg' },
               filename: { type: 'string', example: 'photo.jpg' },
               size: { type: 'number', example: 204800 },
               mimeType: { type: 'string', example: 'image/jpeg' },
@@ -131,10 +119,7 @@ export class UploadController {
   @ApiResponse({ status: 400, description: 'No files provided' })
   @Post('multiple')
   @UseInterceptors(
-    FilesInterceptor('files', 20, {
-      storage: STORAGE,
-      limits: { fileSize: FILE_SIZE_LIMIT },
-    }),
+    FilesInterceptor('files', 20, { storage: STORAGE, limits: { fileSize: FILE_SIZE_LIMIT } }),
   )
   async uploadMultipleFiles(
     @UploadedFiles() files: Express.Multer.File[],
